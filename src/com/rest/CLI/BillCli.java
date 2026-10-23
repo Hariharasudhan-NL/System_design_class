@@ -1,81 +1,88 @@
-
 package com.rest.CLI;
 
 import java.util.Scanner;
-
 import com.rest.models.Order;
-import com.rest.models.OrderItem;
 import com.rest.models.Table;
+import com.rest.services.BillServices;
 import com.rest.services.OrderServices;
 import com.rest.services.TableServices;
 
 public class BillCli {
+    private final Scanner sc;
     private final OrderServices orderService;
     private final TableServices tableService;
-    private final Scanner sc = new Scanner(System.in);
+    private final BillServices billService;
 
-    public BillCli(OrderServices orderService,
-                   TableServices tableService) {
+    public BillCli(Scanner sc, OrderServices orderService,
+                   TableServices tableService,
+                   BillServices billService) {
+        this.sc = sc;
         this.orderService = orderService;
         this.tableService = tableService;
+        this.billService = billService;
     }
 
     public void start() {
-        int tableId;
+        System.out.println("\n--- Tables Ready for Billing ---");
 
-        System.out.println("\nBill Management");
+        boolean found = false;
 
-        System.out.print("Enter table ID: ");
-        tableId = sc.nextInt();
+        for (Table table : tableService.getAll()) {
+            Order order = orderService.getOrder(table.getId());
 
-        Table selectedTable = null;
-
-        for (Table t : tableService.getAll()) {
-            if (t.getId() == tableId) {
-                selectedTable = t;
-                break;
+            if (order != null && !order.getItems().isEmpty()
+                    && billService.getUnpaidBill(table.getId()) == null) {
+                System.out.println("Table ID: " + table.getId()
+                        + " | Order ID: " + order.getId()
+                        + " | Amount: Rs. " + order.getTotal());
+                found = true;
             }
         }
 
-        if (selectedTable == null) {
-            System.out.println("Table not found!");
+        if (!found) {
+            System.out.println("No tables are ready for billing.");
             return;
         }
+
+        System.out.print("Enter Table ID to generate bill: ");
+        int tableId = sc.nextInt();
 
         Order order = orderService.getOrder(tableId);
 
         if (order == null || order.getItems().isEmpty()) {
-            System.out.println("No pending order for this table!");
+            System.out.println("No active order for this table.");
             return;
         }
 
-        System.out.println("\n========== BILL ==========");
-        System.out.println("Order ID: " + order.getId());
-        System.out.println("Table ID: " + tableId);
-
-        for (OrderItem item : order.getItems()) {
-            System.out.println(
-                item.getItemName() + " x " + item.getQuantity()
-                + " = Rs." + item.getTotal()
-            );
+        if (billService.getUnpaidBill(tableId) != null) {
+            System.out.println("An unpaid bill already exists for this table.");
+            return;
         }
 
-        System.out.println("--------------------------");
-        System.out.println("Total Amount: Rs." + order.getTotal());
-        System.out.println("==========================");
-
-        System.out.print("Confirm payment? (1.Yes / 0.No): ");
-        int confirm = sc.nextInt();
-
-        if (confirm == 1) {
-            orderService.closeOrder(tableId);
-            selectedTable.freeNow();
-
-            System.out.println("Payment completed!");
-            System.out.println("Table " + tableId + " is now free.");
-        } else {
-            System.out.println("Bill kept pending.");
-            System.out.println("Table remains occupied.");
+        boolean tableExists = false;
+        for (Table table : tableService.getAll()) {
+            if (table.getId() == tableId) {
+                tableExists = true;
+                break;
+            }
         }
+
+        if (!tableExists) {
+            System.out.println("Invalid table ID.");
+            return;
+        }
+
+        var bill = billService.createBill(tableId, order);
+
+        if (bill == null) {
+            System.out.println("Bill could not be generated.");
+            return;
+        }
+
+        System.out.println("\nBill saved successfully!");
+        System.out.println("Bill ID: " + bill.getId());
+        System.out.println("Table ID: " + bill.getTableId());
+        System.out.println("Total: Rs. " + bill.getTotal());
+        System.out.println("Table remains occupied until payment.");
     }
 }
